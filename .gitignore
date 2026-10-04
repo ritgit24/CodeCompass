@@ -1,0 +1,33 @@
+node_modules
+.next
+out
+dist
+build
+coverage
+
+# env
+.env
+.env.local
+.env.*.local
+
+# runtime data
+**/workspace/
+**/data/
+*.sqlite
+*.sqlite-journal
+*.db
+
+# logs
+*.log
+npm-debug.log*
+
+# test artifacts
+test-results
+playwright-report
+.playwright
+
+# os / editor
+.DS_Store
+.idea
+.vscode/*
+!.vscode/extensions.json

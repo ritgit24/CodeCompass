@@ -1,6 +1,7 @@
 import type { AnalysisEvent, AnalysisStep, LanguageStat, RepoSummary } from "@codecompass/shared";
 import type { ScannedFile } from "../analysis/scan";
 import { getAgentService } from "../agent";
+import { MockAgentService } from "../agent/MockAgentService";
 import { cloneRepo } from "../analysis/clone";
 import { buildGraph } from "../analysis/graph";
 import { parseFiles } from "../analysis/parse";
@@ -105,30 +106,58 @@ export async function runAnalysis(repoId: string, url: string): Promise<void> {
 
     // 5. Summarise
     updateRepoStatus(repoId, "summarising");
-    await step(
-      "summarising",
-      async () => {
-        const agent = await getAgentService();
-        const analysis = await agent.summarizeRepo({
-          repoPath: clone.repoPath,
-          files: scan.files.map((f) => ({ path: f.path, language: f.language, size: f.size })),
-          topDirs: scan.topDirs,
-          readme: readReadme(clone.repoPath, scan.files),
-        });
-        const summary: RepoSummary = {
-          what: analysis.what,
-          techStack: analysis.techStack,
-          howToRun: analysis.howToRun,
-          folderStructure: analysis.folderStructure,
-          keyFiles: analysis.keyFiles,
-          moduleSummaries: analysis.moduleSummaries,
-        };
-        saveSummary(repoId, summary);
-        setFileSummaries(repoId, analysis.moduleSummaries);
-        return summary;
-      },
-      () => ({ ok: true }),
-    );
+    // Best effort: the files, graph and stats are already persisted, so an
+    // unreachable or misconfigured agent must not make the repository unusable.
+    emit(repoId, { type: "step", step: "summarising", status: "started" });
+    let summary: RepoSummary;
+    try {
+      const agent = await getAgentService();
+      const analysis = await agent.summarizeRepo({
+        repoPath: clone.repoPath,
+        files: scan.files.map((f) => ({ path: f.path, language: f.language, size: f.size })),
+        topDirs: scan.topDirs,
+        readme: readReadme(clone.repoPath, scan.files),
+      });
+      summary = {
+        what: analysis.what,
+        techStack: analysis.techStack,
+        howToRun: analysis.howToRun,
+        folderStructure: analysis.folderStructure,
+        keyFiles: analysis.keyFiles,
+        moduleSummaries: analysis.moduleSummaries,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn(`agent summarise failed for ${repoId}; using a local summary`, message);
+      emit(repoId, {
+        type: "log",
+        message: `Agent unavailable (${message}) — using a locally generated summary.`,
+      });
+      // Deterministic, offline summary built from the real file list.
+      const local = new MockAgentService();
+      const fallback = await local.summarizeRepo({
+        repoPath: clone.repoPath,
+        files: scan.files.map((f) => ({ path: f.path, language: f.language, size: f.size })),
+        topDirs: scan.topDirs,
+        readme: readReadme(clone.repoPath, scan.files),
+      });
+      summary = {
+        what: fallback.what,
+        techStack: fallback.techStack,
+        howToRun: fallback.howToRun,
+        folderStructure: fallback.folderStructure,
+        keyFiles: fallback.keyFiles,
+        moduleSummaries: fallback.moduleSummaries,
+      };
+    }
+    saveSummary(repoId, summary);
+    setFileSummaries(repoId, summary.moduleSummaries);
+    emit(repoId, {
+      type: "step",
+      step: "summarising",
+      status: "done",
+      detail: { modules: Object.keys(summary.moduleSummaries).length },
+    });
 
     updateRepoStatus(repoId, "ready");
     emit(repoId, { type: "step", step: "ready", status: "done" });

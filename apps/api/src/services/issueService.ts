@@ -126,6 +126,10 @@ export async function loadIssues(repo: Repo): Promise<IssueInfo[]> {
   const candidates = raw.slice(0, MAX_SCORED_ISSUES);
 
   const scored: IssueInfo[] = [];
+  // If the agent fails once, stop calling it for the rest of this batch and use
+  // the heuristic only — otherwise a slow/broken provider costs one timeout per issue.
+  let agentUsable = true;
+
   for (const issue of candidates) {
     const heuristic = heuristicScore(issue);
     let refined = {
@@ -135,27 +139,33 @@ export async function loadIssues(repo: Repo): Promise<IssueInfo[]> {
       files: [] as string[],
       reason: heuristic.reasons.join(" "),
     };
-    try {
-      const judgement = await agent.scoreIssue({
-        issue: {
-          number: issue.number,
-          title: issue.title,
-          body: issue.body,
-          labels: issue.labels,
-          comments: issue.comments,
-        },
-        heuristic,
-        knownPaths,
-      });
-      refined = {
-        difficulty: judgement.difficulty,
-        difficultyScore: judgement.difficultyScore,
-        estMinutes: judgement.estMinutes,
-        files: judgement.files?.slice(0, 5) ?? [],
-        reason: judgement.reason || heuristic.reasons.join(" "),
-      };
-    } catch (err) {
-      logger.warn("agent issue scoring failed; using heuristic only", (err as Error).message);
+    if (agentUsable) {
+      try {
+        const judgement = await agent.scoreIssue({
+          issue: {
+            number: issue.number,
+            title: issue.title,
+            body: issue.body,
+            labels: issue.labels,
+            comments: issue.comments,
+          },
+          heuristic,
+          knownPaths,
+        });
+        refined = {
+          difficulty: judgement.difficulty,
+          difficultyScore: judgement.difficultyScore,
+          estMinutes: judgement.estMinutes,
+          files: judgement.files?.slice(0, 5) ?? [],
+          reason: judgement.reason || heuristic.reasons.join(" "),
+        };
+      } catch (err) {
+        agentUsable = false;
+        logger.warn(
+          "agent issue scoring failed; using the heuristic for the remaining issues",
+          (err as Error).message,
+        );
+      }
     }
 
     scored.push({

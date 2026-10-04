@@ -33,33 +33,47 @@ export function RepoDashboard({ repoId }: { repoId: string }) {
 
   React.useEffect(() => {
     let cancelled = false;
-    api
-      .getRepo(repoId)
-      .then(({ repo }) => {
-        if (cancelled) return null;
+
+    (async () => {
+      try {
+        const { repo } = await api.getRepo(repoId);
+        if (cancelled) return;
         if (repo.status === "error") {
           setError(repo.error ?? "Analysis failed");
-          return null;
+          setLoading(false);
+          return;
         }
         if (repo.status !== "ready") {
           router.replace(`/repo/${repoId}/loading`);
-          return null;
+          return;
         }
+        // Render the dashboard as soon as we know the repo is ready; the graph and
+        // the (potentially slow) issue scoring fill in as they arrive.
         setRepo(repo);
-        return Promise.all([api.getGraph(repoId), api.getIssues(repoId, "beginner")]);
-      })
-      .then((result) => {
-        if (cancelled || !result) return;
-        setGraph(result[0].graph);
-        setIssues(result[1].issues);
-        setIssuesSource(result[1].source);
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load repo");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+        setLoading(false);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to load repo");
+          setLoading(false);
+        }
+        return;
+      }
+
+      api
+        .getGraph(repoId)
+        .then((res) => !cancelled && setGraph(res.graph))
+        .catch(() => undefined);
+
+      api
+        .getIssues(repoId, "beginner")
+        .then((res) => {
+          if (cancelled) return;
+          setIssues(res.issues);
+          setIssuesSource(res.source);
+        })
+        .catch(() => !cancelled && setIssues([]));
+    })();
+
     return () => {
       cancelled = true;
     };

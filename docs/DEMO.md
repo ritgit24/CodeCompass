@@ -36,10 +36,15 @@ then click a **Key file** to open the code viewer.
 > "The first thing a newcomer needs: what this is, how to run it, and what to read first."
 
 **1:00 — Map (~25s)**
-Switch to the **Map** tab. Pan/zoom, use the minimap, type in **Search** to highlight a module.
-Click a node → drawer with files inside → hit **Ask about this**.
+Switch to the **Map** tab. Point out that it opens at an automatically chosen depth (a big repo gets
+rolled up so it stays readable): **Top level / 2 levels / 3 levels / Everything**.
+Pan/zoom, use the minimap, toggle **Top → bottom**, and type in **Search** to isolate a module.
+**Click a node** — its neighbours stay bright and everything else fades, so the local structure pops.
+Open the drawer → dependency lists + **Files inside** → **Break this module down** to drill deeper →
+**Ask about this**.
 
-> "Folder-level module graph, edges weighted by how many imports cross them."
+> "Modules sit in dependency layers — entry points left, leaves right — with arrows for import
+> direction, thickness for import count, and colours per top-level group."
 
 **1:25 — Ask the Repo (~25s)**
 The question lands in the chat and the answer **streams in**, followed by **source chips**.

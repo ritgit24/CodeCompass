@@ -1,0 +1,220 @@
+:root {
+  --font-inter: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ------------------------------------------------------------------ */
+/* Design tokens. Dark is the default; `.light` opts into light mode.  */
+/* ------------------------------------------------------------------ */
+:root,
+.dark {
+  --background: #0b1020;
+  --surface: #111827;
+  --elevated: #1a2236;
+  --border: rgba(255, 255, 255, 0.08);
+  --foreground: #e6eaf2;
+  --muted: #8a93a6;
+  --primary: #14b8a6;
+  --primary-2: #22d3ee;
+  --primary-foreground: #04211e;
+  --violet: #8b5cf6;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --grid-line: rgba(255, 255, 255, 0.04);
+}
+
+.light {
+  --background: #f8fafc;
+  --surface: #ffffff;
+  --elevated: #ffffff;
+  --border: rgba(15, 23, 42, 0.08);
+  --foreground: #0f172a;
+  --muted: #64748b;
+  --primary: #0d9488;
+  --primary-2: #0891b2;
+  --primary-foreground: #ffffff;
+  --violet: #7c3aed;
+  --success: #16a34a;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --grid-line: rgba(15, 23, 42, 0.05);
+}
+
+* {
+  border-color: var(--border);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Subtle dotted/grid backdrop used behind the hero + dashboards. */
+.bg-grid {
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+
+.glass {
+  background: color-mix(in srgb, var(--background) 70%, transparent);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+}
+
+.text-gradient {
+  background: linear-gradient(120deg, var(--primary) 0%, var(--primary-2) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Focus rings that stay visible on both themes. */
+:focus-visible {
+  outline: 2px solid var(--primary-2);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Skeleton shimmer */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--elevated);
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent);
+  animation: shimmer 1.6s infinite;
+}
+
+/* Streaming cursor for chat */
+.stream-cursor::after {
+  content: "▍";
+  margin-left: 2px;
+  animation: blink 1s step-end infinite;
+  color: var(--primary-2);
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Markdown + code */
+.prose-compass {
+  line-height: 1.65;
+}
+.prose-compass p {
+  margin: 0.5rem 0;
+}
+.prose-compass ul,
+.prose-compass ol {
+  margin: 0.5rem 0 0.5rem 1.25rem;
+  list-style: disc;
+}
+.prose-compass ol {
+  list-style: decimal;
+}
+.prose-compass h1,
+.prose-compass h2,
+.prose-compass h3 {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0.75rem 0 0.35rem;
+}
+.prose-compass code:not(pre code) {
+  background: var(--elevated);
+  padding: 0.1rem 0.35rem;
+  border-radius: 6px;
+  font-size: 0.85em;
+  font-family: var(--font-mono), monospace;
+}
+.prose-compass pre {
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.9rem 1rem;
+  overflow: auto;
+  font-size: 13px;
+}
+
+/* highlight.js — minimal token colours tuned to the dark palette */
+.hljs-comment,
+.hljs-quote {
+  color: var(--muted);
+  font-style: italic;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal {
+  color: #c084fc;
+}
+.hljs-string,
+.hljs-attr {
+  color: #7dd3fc;
+}
+.hljs-number,
+.hljs-built_in {
+  color: #fbbf24;
+}
+.hljs-title,
+.hljs-function .hljs-title,
+.hljs-title.function_ {
+  color: var(--primary-2);
+}
+.hljs-variable,
+.hljs-params {
+  color: #e6eaf2;
+}
+
+/* React Flow tweaks to match the theme */
+.react-flow__attribution {
+  display: none;
+}
+.react-flow__minimap {
+  background: var(--surface) !important;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.react-flow__controls-button {
+  background: var(--elevated) !important;
+  border-color: var(--border) !important;
+  color: var(--foreground) !important;
+}

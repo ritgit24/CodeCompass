@@ -1,49 +1,87 @@
 "use client";
 
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
-import { Files } from "lucide-react";
+import { ArrowDown, ArrowUp, Files } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export const LANG_COLORS: Record<string, string> = {
-  TypeScript: "#3178C6",
-  JavaScript: "#F7DF1E",
-  Python: "#3776AB",
-  Ruby: "#CC342D",
-  Go: "#00ADD8",
-  Rust: "#DEA584",
-  Java: "#B07219",
-  Markdown: "#64748B",
-  JSON: "#F59E0B",
-  Other: "#8A93A6",
-};
+export type NodeState = "normal" | "selected" | "neighbour" | "match" | "dim";
 
 export type ModuleNodeData = {
   label: string;
+  fullPath: string;
   fileCount: number;
   language: string;
-  highlighted: boolean;
+  color: string;
+  direction: "LR" | "TB";
+  inDegree: number;
+  outDegree: number;
+  state: NodeState;
 };
 
+export const NODE_WIDTH = 208;
+export const NODE_HEIGHT = 64;
+
 export function ModuleNode({ data }: NodeProps<Node<ModuleNodeData>>) {
-  const color = LANG_COLORS[data.language] ?? LANG_COLORS.Other;
+  const horizontal = data.direction === "LR";
+  const dimmed = data.state === "dim";
+  const isSelected = data.state === "selected";
+  const isMatch = data.state === "match";
+  const isNeighbour = data.state === "neighbour";
+
   return (
     <div
       className={cn(
-        "rounded-xl border bg-surface px-3.5 py-2.5 shadow-card transition-all",
-        data.highlighted
-          ? "border-[var(--primary-2)] ring-2 ring-[var(--primary-2)]/40"
-          : "border-border",
+        "relative rounded-xl border bg-surface px-3 py-2.5 shadow-card transition-all duration-200",
+        isSelected && "border-transparent ring-2 ring-[var(--primary-2)]",
+        isMatch && "border-[var(--primary-2)]/70",
+        isNeighbour && "border-[var(--primary)]/60",
+        !isSelected && !isMatch && !isNeighbour && "border-border",
+        dimmed && "opacity-20 saturate-50",
       )}
-      style={{ borderLeft: `3px solid ${color}` }}
+      style={{
+        width: NODE_WIDTH,
+        height: NODE_HEIGHT,
+        ...(horizontal
+          ? { borderLeft: `3px solid ${data.color}` }
+          : { borderTop: `3px solid ${data.color}` }),
+      }}
+      title={data.fullPath}
     >
-      <Handle type="target" position={Position.Left} className="!border-0 !bg-[var(--muted)]" />
-      <span className="font-mono text-xs font-semibold">{data.label}</span>
-      <div className="mt-1 flex items-center gap-1 text-[10px] text-muted">
-        <Files className="h-3 w-3" /> {data.fileCount}
-        <span className="mx-0.5">·</span>
-        {data.language}
+      <Handle
+        type="target"
+        position={horizontal ? Position.Left : Position.Top}
+        className="!h-1.5 !w-1.5 !border-0 !bg-[var(--muted)]"
+      />
+      <div className="flex items-center gap-1.5">
+        <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: data.color }} />
+        <span className="truncate font-mono text-xs font-semibold">{data.label}</span>
       </div>
-      <Handle type="source" position={Position.Right} className="!border-0 !bg-[var(--muted)]" />
+      <div className="mt-1.5 flex items-center gap-2 text-[10px] text-muted">
+        <span className="inline-flex items-center gap-1">
+          <Files className="h-2.5 w-2.5" /> {data.fileCount}
+        </span>
+        <span className="truncate">{data.language}</span>
+        <span className="ml-auto inline-flex items-center gap-1.5">
+          {data.inDegree > 0 && (
+            <span className="inline-flex items-center gap-0.5">
+              <ArrowDown className="h-2.5 w-2.5" /> {data.inDegree}
+            </span>
+          )}
+          {data.outDegree > 0 && (
+            <span className="inline-flex items-center gap-0.5">
+              <ArrowUp className="h-2.5 w-2.5" /> {data.outDegree}
+            </span>
+          )}
+          {data.inDegree === 0 && data.outDegree === 0 && (
+            <span title="no imports either way">∅</span>
+          )}
+        </span>
+      </div>
+      <Handle
+        type="source"
+        position={horizontal ? Position.Right : Position.Bottom}
+        className="!h-1.5 !w-1.5 !border-0 !bg-[var(--muted)]"
+      />
     </div>
   );
 }

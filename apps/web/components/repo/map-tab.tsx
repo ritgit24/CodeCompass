@@ -1,25 +1,25 @@
 "use client";
 
-import * as React from "react";
 import {
   Background,
   BackgroundVariant,
   Controls,
   MiniMap,
+  Panel,
   ReactFlow,
   type Edge,
-  type Node,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Files, MessageSquareCode, Search } from "lucide-react";
+import { Files, Info } from "lucide-react";
 import type { Graph } from "@codecompass/shared";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
-import { layoutGraph } from "@/lib/graph-layout";
-import { ModuleNode, nodeTypes, type ModuleNodeData } from "./map-node";
+import { nodeTypes } from "./map-node";
+import { MapToolbar } from "./map-toolbar";
+import { MapLegend } from "./map-legend";
+import { MapDrawer } from "./map-drawer";
+import { useMapModel } from "./use-map-model";
+import type { FlowNode } from "./map-utils";
 
 export function MapTab({
   graph,
@@ -30,36 +30,7 @@ export function MapTab({
   onOpenFile: (path: string) => void;
   onAsk: (question: string) => void;
 }) {
-  const [query, setQuery] = React.useState("");
-  const [selected, setSelected] = React.useState<string | null>(null);
-
-  const { nodes, edges } = React.useMemo(() => {
-    if (!graph) return { nodes: [] as Node<ModuleNodeData>[], edges: [] as Edge[] };
-    const positions = layoutGraph(graph);
-    const q = query.trim().toLowerCase();
-    const rfNodes: Node<ModuleNodeData>[] = graph.nodes.map((n) => ({
-      id: n.id,
-      type: "module",
-      position: positions.get(n.id) ?? { x: 0, y: 0 },
-      data: {
-        label: n.label,
-        fileCount: n.files.length,
-        language: n.language ?? "Other",
-        highlighted:
-          Boolean(q) && (n.label.toLowerCase().includes(q) || n.id.toLowerCase().includes(q)),
-      },
-    }));
-    const rfEdges: Edge[] = graph.edges.map((e) => ({
-      id: e.id,
-      source: e.source,
-      target: e.target,
-      animated: e.weight > 2,
-      style: { stroke: "#8A93A6", strokeWidth: Math.min(1 + e.weight * 0.5, 4), opacity: 0.6 },
-    }));
-    return { nodes: rfNodes, edges: rfEdges };
-  }, [graph, query]);
-
-  const selectedNode = graph?.nodes.find((n) => n.id === selected) ?? null;
+  const map = useMapModel(graph);
 
   if (!graph || graph.nodes.length === 0) {
     return (
@@ -72,102 +43,102 @@ export function MapTab({
   }
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-3">
-        <div className="relative max-w-xs flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search modules…"
-            aria-label="Search modules"
-            className="pl-9"
-          />
-        </div>
-        <span className="text-xs text-muted">
-          {graph.nodes.length} modules · {graph.edges.length} edges
-        </span>
-      </div>
+    <Card className="overflow-hidden p-4">
+      <MapToolbar
+        depth={map.depth}
+        onDepthChange={(next) => {
+          map.setDepth(next);
+          map.setSelected(null);
+        }}
+        depthOptions={map.depthOptions}
+        direction={map.direction}
+        onDirectionChange={map.setDirection}
+        strongOnly={map.strongOnly}
+        onStrongOnlyChange={(value) => {
+          map.markStrongTouched();
+          map.setStrongOnly(value);
+        }}
+        strongAvailable={map.strongAvailable}
+        query={map.query}
+        onQueryChange={map.setQuery}
+        stats={{
+          shownNodes: map.model?.shownNodes ?? 0,
+          totalNodes: map.model?.totalNodes ?? 0,
+          shownEdges: map.visibleEdges.length,
+          totalEdges: map.model?.totalEdges ?? 0,
+          layerCount: map.layout?.layerCount ?? 0,
+        }}
+        onFit={() => map.rfRef.current?.fitView({ padding: 0.2, duration: 400 })}
+        onReset={map.reset}
+        showReset={Boolean(map.selected || map.query || map.hoverGroup)}
+      />
 
-      <div className="h-[560px] overflow-hidden rounded-xl border border-border bg-surface/60 bg-grid">
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
+      <div className="mt-3 h-[600px] overflow-hidden rounded-xl border border-border bg-surface/50 bg-grid">
+        <ReactFlow<FlowNode, Edge>
+          nodes={map.nodes}
+          edges={map.edges}
           nodeTypes={nodeTypes}
-          onNodeClick={(_, node) => setSelected(node.id)}
+          onNodesChange={map.onNodesChange}
+          onEdgesChange={map.onEdgesChange}
+          onInit={(instance) => {
+            map.rfRef.current = instance;
+          }}
+          onNodeClick={(_, node) =>
+            map.setSelected((current) => (current === node.id ? null : node.id))
+          }
+          onPaneClick={() => map.setSelected(null)}
           fitView
-          minZoom={0.2}
+          fitViewOptions={{ padding: 0.2, maxZoom: 1.1 }}
+          minZoom={0.05}
+          maxZoom={2}
+          onlyRenderVisibleElements
+          nodesDraggable
+          nodeDragThreshold={1}
           proOptions={{ hideAttribution: true }}
         >
           <Background
             variant={BackgroundVariant.Dots}
-            gap={22}
+            gap={20}
             size={1}
-            color="rgba(138,147,166,0.25)"
+            color="rgba(138,147,166,0.22)"
           />
           <Controls showInteractive={false} />
-          <MiniMap pannable zoomable nodeColor={() => "#14B8A6"} maskColor="rgba(11,16,32,0.6)" />
+          <MiniMap
+            pannable
+            zoomable
+            nodeStrokeWidth={0}
+            nodeColor={(node) => map.colorById.get(node.id) ?? "#14B8A6"}
+            maskColor="rgba(11,16,32,0.6)"
+          />
+          <Panel position="bottom-left" className="!m-3">
+            <MapLegend
+              groups={map.model?.groups ?? []}
+              isolatedCount={map.model?.isolatedCount ?? 0}
+              visibleGroup={map.hoverGroup}
+              onHoverGroup={map.setHoverGroup}
+            />
+          </Panel>
+          <Panel position="top-left" className="!m-3">
+            <div className="pointer-events-none flex items-center gap-2 rounded-lg border border-border bg-surface/80 px-2.5 py-1.5 text-[11px] text-muted backdrop-blur">
+              <Info className="h-3 w-3" />
+              {map.selected
+                ? "Neighbours highlighted · click the background to clear"
+                : "Click a module to see what it imports"}
+            </div>
+          </Panel>
         </ReactFlow>
       </div>
 
-      <Sheet open={Boolean(selectedNode)} onOpenChange={(open) => !open && setSelected(null)}>
-        <SheetContent title={selectedNode?.label ?? "Module"}>
-          {selectedNode && (
-            <div className="space-y-5">
-              <div className="flex flex-wrap gap-1.5">
-                <Badge variant="primary">{selectedNode.language ?? "Other"}</Badge>
-                <Badge variant="muted">{selectedNode.files.length} files</Badge>
-                <Badge variant="muted">
-                  {selectedNode.id === "." ? "(root)" : selectedNode.id}
-                </Badge>
-              </div>
-
-              <div>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">
-                  Summary
-                </p>
-                <p className="text-sm text-muted">
-                  This module contains {selectedNode.files.length} file(s) and belongs to the{" "}
-                  {selectedNode.language ?? "project"} layer. Follow the edges to see what it
-                  depends on.
-                </p>
-              </div>
-
-              <div>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">
-                  Files inside
-                </p>
-                <ul className="space-y-1">
-                  {selectedNode.files.slice(0, 40).map((file) => (
-                    <li key={file}>
-                      <button
-                        onClick={() => onOpenFile(file)}
-                        className="w-full truncate rounded-lg px-2 py-1.5 text-left font-mono text-xs text-muted transition-colors hover:bg-elevated hover:text-foreground"
-                      >
-                        {file}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <Button
-                className="w-full"
-                onClick={() => {
-                  onAsk(
-                    `Explain the "${selectedNode.label}" module and how it fits into the project.`,
-                  );
-                  setSelected(null);
-                }}
-              >
-                <MessageSquareCode className="h-4 w-4" /> Ask about this
-              </Button>
-            </div>
-          )}
-        </SheetContent>
-      </Sheet>
-    </div>
+      <MapDrawer
+        node={map.selectedNode}
+        imports={map.imports}
+        importedBy={map.importedBy}
+        onOpenFile={onOpenFile}
+        onAsk={onAsk}
+        onSelect={map.focusOn}
+        onDrillDown={map.drillDown}
+        onClose={() => map.setSelected(null)}
+      />
+    </Card>
   );
 }
-
-export { ModuleNode };

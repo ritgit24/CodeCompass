@@ -32,9 +32,21 @@ test("landing loads and the demo repo reaches the dashboard", async ({ page }) =
   await expect(page.getByRole("tab", { name: "Map" })).toBeVisible();
   await expect(page.getByText(/What this project does/i)).toBeVisible({ timeout: 20_000 });
 
-  // Map tab renders the React Flow canvas
+  // Map tab renders the React Flow canvas with a laid-out, clickable module
   await page.getByRole("tab", { name: "Map" }).click();
   await expect(page.locator(".react-flow")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Everything" })).toBeVisible();
+
+  const firstNode = page.locator(".react-flow__node").first();
+  await expect(firstNode).toBeVisible();
+  await firstNode.click();
+
+  // Node drawer opens with dependency + file detail
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(page.getByText("Files inside")).toBeVisible();
+
+  await page.getByLabel("Close panel").click();
+  await expect(page.getByRole("dialog")).toBeHidden();
 
   // No uncaught page errors
   const unexpected = consoleErrors.filter((entry) => entry.includes("Uncaught"));

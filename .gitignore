@@ -21,6 +21,9 @@ coverage
 *.log
 npm-debug.log*
 
+# typescript incremental build info
+*.tsbuildinfo
+
 # test artifacts
 test-results
 playwright-report

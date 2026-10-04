@@ -1,0 +1,10 @@
+{
+  "name": "compass-demo-router",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A tiny HTTP router used to demo CodeCompass end to end.",
+  "scripts": {
+    "test": "node --test"
+  }
+}

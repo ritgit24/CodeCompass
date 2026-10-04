@@ -14,11 +14,20 @@ import { LLMClient, type ChatMessage } from "./llmClient";
 import { extractJson, parseSources } from "./util";
 import { collectDiffs } from "./gitDiff";
 import {
+  EDIT_MAX_TOKENS,
+  EDIT_TIMEOUT_MS,
+  EditPayloadSchema,
+  collectEditableFiles,
+  planWrites,
+  writeFiles,
+} from "./directEdits";
+import {
+  EDIT_SYSTEM,
   EXPLAIN_SYSTEM,
   PLAN_SYSTEM,
   PR_SYSTEM,
   SUMMARIZE_SYSTEM,
-  applyPrompt,
+  editPrompt,
   explainPrompt,
   planPrompt,
   prPrompt,
@@ -91,24 +100,76 @@ export class DirectLLMAgentService implements AgentService {
     yield { type: "done" };
   }
 
+  /**
+   * A chat model has no tools, so instead of asking it to *call* an editor we
+   * ask it to return full file contents as JSON, validate that payload against
+   * a strict schema, and write the files ourselves. The resulting `git diff` is
+   * then captured exactly like any other provider, so the review UI is unchanged.
+   */
   async *applyPlan(input: ApplyPlanInput): AsyncIterable<AgentEvent> {
-    // A bare chat model can't edit files — surface the concrete edits instead.
-    const messages: ChatMessage[] = [
-      {
-        role: "system",
-        content:
-          "You are a senior engineer. Describe the exact edits to make, file by file, as unified-diff-like snippets.",
-      },
-      { role: "user", content: applyPrompt(input.issue, input.plan) },
-    ];
-    try {
-      for await (const delta of this.llm.stream(messages)) {
-        yield { type: "message", text: delta };
-      }
-    } catch (err) {
-      yield { type: "error", message: (err as Error).message };
+    const { repoPath, plan, issue } = input;
+
+    const { files, skipped } = collectEditableFiles(repoPath, plan.filesToChange ?? []);
+    for (const file of files) yield { type: "file_read", path: file.path };
+
+    if (files.length === 0) {
+      yield {
+        type: "message",
+        text:
+          skipped.length > 0
+            ? `No editable files: ${skipped.join(", ")}`
+            : "No editable files were identified for this change.",
+      };
+      yield { type: "done" };
+      return;
     }
-    const diffs = await collectDiffs(input.repoPath);
+
+    let raw: string;
+    try {
+      raw = await this.llm.complete(
+        [
+          { role: "system", content: EDIT_SYSTEM },
+          { role: "user", content: editPrompt(issue, plan, files, skipped) },
+        ],
+        { maxTokens: EDIT_MAX_TOKENS, timeoutMs: EDIT_TIMEOUT_MS },
+      );
+    } catch (err) {
+      yield { type: "error", message: err instanceof Error ? err.message : String(err) };
+      yield { type: "done" };
+      return;
+    }
+
+    const payload = extractJson(raw);
+    if (!payload) {
+      yield { type: "error", message: "The model did not return valid edit JSON." };
+      yield { type: "done" };
+      return;
+    }
+
+    const summary = EditPayloadSchema.safeParse(payload).data?.summary?.trim();
+    if (summary) yield { type: "message", text: summary };
+
+    const { writes, rejected } = planWrites(repoPath, payload);
+    if (rejected.length) yield { type: "message", text: `Skipped: ${rejected.join("; ")}` };
+
+    if (writes.length === 0) {
+      yield { type: "message", text: "The model proposed no applicable file changes." };
+      yield { type: "done" };
+      return;
+    }
+
+    try {
+      writeFiles(writes);
+      for (const write of writes) yield { type: "message", text: `Updated ${write.path}` };
+    } catch (err) {
+      yield {
+        type: "error",
+        message: `Could not write files: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+
+    yield { type: "command_run", command: "git diff --stat", output: "" };
+    const diffs = await collectDiffs(repoPath);
     for (const d of diffs) {
       yield {
         type: "file_edit",
@@ -122,27 +183,33 @@ export class DirectLLMAgentService implements AgentService {
   }
 
   async summarizeRepo(input: SummarizeInput): Promise<RepoAnalysis> {
-    const text = await this.llm.complete([
-      { role: "system", content: SUMMARIZE_SYSTEM },
-      { role: "user", content: summarizePrompt(input.files, input.topDirs, input.readme) },
-    ]);
+    const text = await this.llm.complete(
+      [
+        { role: "system", content: SUMMARIZE_SYSTEM },
+        { role: "user", content: summarizePrompt(input.files, input.topDirs, input.readme) },
+      ],
+      { timeoutMs: 45_000 },
+    );
     return extractJson<RepoAnalysis>(text) ?? EMPTY_ANALYSIS;
   }
 
   async scoreIssue(input: ScoreInput): Promise<IssueScore> {
-    const text = await this.llm.complete([
-      { role: "system", content: "Return STRICT JSON only." },
-      {
-        role: "user",
-        content: [
-          `Issue: ${input.issue.title}\n${input.issue.body.slice(0, 3000)}`,
-          `Labels: ${input.issue.labels.join(", ")}`,
-          `Heuristic score (1-5): ${input.heuristic.score}`,
-          `Known paths: ${input.knownPaths.slice(0, 120).join(", ")}`,
-          'Return {"difficulty":"Easy|Medium|Hard","difficultyScore":number,"estMinutes":number,"files":string[],"reason":string}',
-        ].join("\n"),
-      },
-    ]);
+    const text = await this.llm.complete(
+      [
+        { role: "system", content: "Return STRICT JSON only." },
+        {
+          role: "user",
+          content: [
+            `Issue: ${input.issue.title}\n${input.issue.body.slice(0, 3000)}`,
+            `Labels: ${input.issue.labels.join(", ")}`,
+            `Heuristic score (1-5): ${input.heuristic.score}`,
+            `Known paths: ${input.knownPaths.slice(0, 120).join(", ")}`,
+            'Return {"difficulty":"Easy|Medium|Hard","difficultyScore":number,"estMinutes":number,"files":string[],"reason":string}',
+          ].join("\n"),
+        },
+      ],
+      { timeoutMs: 30_000, maxTokens: 600 },
+    );
     return (
       extractJson<IssueScore>(text) ?? {
         difficulty: input.heuristic.score <= 2 ? "Easy" : "Medium",

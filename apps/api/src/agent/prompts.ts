@@ -92,3 +92,53 @@ export function prPrompt(issue: IssueInfo, plan: FixPlan, changed: string[]): st
     'Return JSON: { "title": string, "body": string }',
   ].join("\n");
 }
+
+export const EDIT_SYSTEM = `You are a precise senior engineer applying a change to an existing repository.
+Wrap your answer in a single \`\`\`json fenced code block containing exactly this shape:
+
+{
+  "summary": "<one sentence describing the change>",
+  "files": [
+    { "path": "<repo-relative path>", "content": "<the COMPLETE new contents of that file>" }
+  ]
+}
+
+Rules:
+- "content" must be the entire file, written out in full. Never a diff, never a fragment, never "...".
+- Only include files you actually modify. If nothing needs changing, return { "summary": "...", "files": [] }.
+- Keep the change minimal and match the existing code style, quotes, and indentation.
+- Do not reformat, reorder or "tidy" unrelated code. Do not add dependencies.
+- Never rename or delete files, and only use paths from the files listed below.
+- If a file is too large or was not shown to you, do not touch it.`;
+
+export function editPrompt(
+  issue: IssueInfo,
+  plan: FixPlan,
+  files: { path: string; content: string }[],
+  skipped: string[],
+): string {
+  const parts: string[] = [];
+  parts.push(`Issue #${issue.number}: ${issue.title}`);
+  if (issue.body.trim()) parts.push("", issue.body.slice(0, 2500));
+  if (plan.steps.length) {
+    parts.push("", "Plan:");
+    plan.steps.forEach((step, index) =>
+      parts.push(`${index + 1}. ${step.title}${step.detail ? ` — ${step.detail}` : ""}`),
+    );
+  }
+  if (plan.filesToChange.length) {
+    parts.push("", `Files the plan mentions: ${plan.filesToChange.join(", ")}`);
+  }
+  if (skipped.length) {
+    parts.push("", `Do NOT touch these (not editable): ${skipped.join(", ")}`);
+  }
+  parts.push("", "Files you may edit, with their full current contents:");
+  for (const file of files) {
+    parts.push("", `--- ${file.path} ---`, file.content);
+  }
+  parts.push(
+    "",
+    "Now apply the fix. Return ONLY the fenced JSON object described in your instructions.",
+  );
+  return parts.join("\n");
+}

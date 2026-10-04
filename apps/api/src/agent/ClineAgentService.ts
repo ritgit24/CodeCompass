@@ -13,6 +13,7 @@ import type {
 } from "./AgentService";
 import { eventBridge } from "./bridge";
 import { extractJson, parseSources } from "./util";
+import { describeError } from "./llmClient";
 import { collectDiffs } from "./gitDiff";
 import { createWorkspaceTools } from "./clineTools";
 import {
@@ -220,7 +221,7 @@ commands. When finished, reply with a one-sentence summary.`,
 }
 
 function msgOf(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+  return err instanceof Error ? describeError(err) : String(err);
 }
 
 export { EMPTY_ANALYSIS, type Sdk };

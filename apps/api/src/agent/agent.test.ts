@@ -1,8 +1,25 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { MockAgentService } from "./MockAgentService";
 import { isCommandAllowed, runAllowedCommand } from "./clineTools";
 import { splitUnifiedDiff } from "./gitDiff";
 import { extractJson } from "./util";
+import {
+  MAX_EDIT_FILES,
+  MAX_READ_BYTES,
+  collectEditableFiles,
+  planWrites,
+  writeFiles,
+} from "./directEdits";
+
+function repo(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cc-edits-"));
+  fs.mkdirSync(path.join(dir, "src"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "src", "url.js"), "export const a = 1;\n");
+  return dir;
+}
 
 describe("MockAgentService", () => {
   const agent = new MockAgentService();
@@ -124,5 +141,94 @@ describe("diff + json helpers", () => {
     expect(extractJson<{ a: number }>('```json\n{"a":1}\n```')?.a).toBe(1);
     expect(extractJson<{ a: number }>('sure, here: {"a":2} thanks')?.a).toBe(2);
     expect(extractJson("no json here")).toBeNull();
+  });
+});
+
+describe("direct structured edits", () => {
+  it("collects only real, editable files inside the repo", () => {
+    const dir = repo();
+    fs.writeFileSync(path.join(dir, "src", "big.js"), "x".repeat(MAX_READ_BYTES + 1));
+
+    const { files, skipped } = collectEditableFiles(dir, [
+      "src/url.js",
+      "src/missing.js",
+      "src/big.js",
+      "../outside.js",
+      "src",
+      "src/url.js", // duplicate
+    ]);
+    const paths = files.map((f) => f.path);
+    expect(paths).toEqual(["src/url.js"]);
+    expect(skipped.join(" ")).toMatch(/missing/);
+    expect(skipped.join(" ")).toMatch(/size cap/);
+    expect(skipped.join(" ")).toMatch(/outside the repository/);
+    expect(skipped.join(" ")).toMatch(/not a file/);
+  });
+
+  it("caps the number of editable files", () => {
+    const dir = repo();
+    const candidates: string[] = [];
+    for (let i = 0; i < 20; i++) {
+      const rel = `src/f${i}.js`;
+      fs.writeFileSync(path.join(dir, rel), "export const x = 1;\n");
+      candidates.push(rel);
+    }
+    expect(collectEditableFiles(dir, candidates).files).toHaveLength(MAX_EDIT_FILES);
+  });
+
+  it("accepts a valid rewrite and stages the write", () => {
+    const dir = repo();
+    const { writes, rejected } = planWrites(dir, {
+      summary: "encode params",
+      files: [{ path: "src/url.js", content: "export const a = 2;\n" }],
+    });
+    expect(rejected).toEqual([]);
+    expect(writes.map((w) => w.path)).toEqual(["src/url.js"]);
+  });
+
+  it("allows creating a brand new file", () => {
+    const dir = repo();
+    const { writes, rejected } = planWrites(dir, {
+      files: [{ path: "src/new.js", content: "export const n = 1;\n" }],
+    });
+    expect(rejected).toEqual([]);
+    expect(writes).toHaveLength(1);
+  });
+
+  it("rejects absolute paths, escapes, empty content and no-op writes", () => {
+    const dir = repo();
+    const { writes, rejected } = planWrites(dir, {
+      files: [
+        { path: "/etc/passwd", content: "x" },
+        { path: "../../evil.js", content: "x" },
+        { path: "src/url.js", content: "   \n" },
+        { path: "src/url.js", content: "export const a = 1;\n" },
+      ],
+    });
+    expect(writes).toEqual([]);
+    expect(rejected.join(" | ")).toMatch(/absolute/);
+    expect(rejected.join(" | ")).toMatch(/escapes the repository/);
+    expect(rejected.join(" | ")).toMatch(/empty content/);
+    expect(rejected.join(" | ")).toMatch(/no change/);
+  });
+
+  it("rejects a payload that does not match the schema", () => {
+    const dir = repo();
+    expect(planWrites(dir, { files: "nope" }).writes).toEqual([]);
+    expect(planWrites(dir, null).rejected.join(" ")).toMatch(/expected JSON shape/);
+  });
+
+  it("writes validated files (and only those) into the repo", () => {
+    const dir = repo();
+    const { writes } = planWrites(dir, {
+      files: [
+        { path: "src/url.js", content: "export const a = 2;\n" },
+        { path: "src/deep/nested.js", content: "export const n = 1;\n" },
+      ],
+    });
+    writeFiles(writes);
+    expect(fs.readFileSync(path.join(dir, "src", "url.js"), "utf8")).toBe("export const a = 2;\n");
+    expect(fs.existsSync(path.join(dir, "src", "deep", "nested.js"))).toBe(true);
+    expect(fs.existsSync(path.join(dir, "..", "evil.js"))).toBe(false);
   });
 });

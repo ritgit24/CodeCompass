@@ -247,7 +247,9 @@ until you approve.
 
 **Changes** — a live **activity log** (files read, files edited, commands run) beside **per-file
 side-by-side diffs**, with **Accept / Reject** on each file. Rejecting a file reverts it in the working
-copy. You control exactly what survives.
+copy. You control exactly what survives. How the edits are produced depends on the provider: `cline`
+drives the Cline SDK's `read_file` / `write_file` tools, while `direct` asks the model for complete
+file contents as JSON and writes them itself after validating the payload.
 
 **Verify** — runs the project's own test suite in the sandbox (`npm test` for JS projects — installing
 dependencies first if needed and if the project has any — `pytest -q` for Python, or `make test`),
@@ -270,23 +272,24 @@ with a timeout, and shows the real output. Then it generates a **draft PR title 
 Copy `.env.example` to `.env`. Everything has a working default — the file is only needed to switch
 providers or add a token.
 
-| Variable              | Default                     | Purpose                                                                                            |
-| --------------------- | --------------------------- | -------------------------------------------------------------------------------------------------- |
-| `GITHUB_TOKEN`        | _(empty)_                   | Optional. Raises GitHub API rate limits for issue metadata. Cloning public repos works without it. |
-| `AGENT_PROVIDER`      | `mock`                      | `mock` \| `cline` \| `direct` — see [Agent providers](#agent-providers).                           |
-| `CLINE_PROVIDER_ID`   | `anthropic`                 | Provider id passed to the Cline SDK (`anthropic`, `openai`, `openai-compatible`, …).               |
-| `CLINE_MODEL_ID`      | `claude-sonnet-4-6`         | Model id passed to the Cline SDK.                                                                  |
-| `LLM_API_KEY`         | _(empty)_                   | API key for `cline` (the provider's key) and for `direct`.                                         |
-| `LLM_BASE_URL`        | `https://api.openai.com/v1` | OpenAI-compatible base URL used by `direct`.                                                       |
-| `LLM_MODEL`           | `gpt-4o-mini`               | Model used by `direct`.                                                                            |
-| `PORT`                | `4000`                      | API port.                                                                                          |
-| `NEXT_PUBLIC_API_URL` | `http://localhost:4000`     | Base URL the web app uses to reach the API.                                                        |
-| `WORKSPACE_DIR`       | `./workspace`               | Where shallow clones and fix-session copies live.                                                  |
-| `DATA_DIR`            | `./data`                    | Where the SQLite database lives.                                                                   |
-| `MAX_REPO_MB`         | `100`                       | Repositories larger than this are rejected after cloning.                                          |
-| `MAX_FILES`           | `4000`                      | Scan cap.                                                                                          |
-| `TEST_TIMEOUT_MS`     | `120000`                    | Timeout for test runs and sandboxed commands.                                                      |
-| `MOCK_SEED`           | `codecompass`               | Seed for deterministic mock output.                                                                |
+| Variable              | Default                     | Purpose                                                                                                 |
+| --------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `GITHUB_TOKEN`        | _(empty)_                   | Optional. Raises GitHub API rate limits for issue metadata. Cloning public repos works without it.      |
+| `AGENT_PROVIDER`      | `mock`                      | `mock` \| `cline` \| `direct` — see [Agent providers](#agent-providers).                                |
+| `CLINE_PROVIDER_ID`   | `anthropic`                 | Provider id passed to the Cline SDK (`anthropic`, `openai`, `openai-compatible`, …).                    |
+| `CLINE_MODEL_ID`      | `claude-sonnet-4-6`         | Model id passed to the Cline SDK.                                                                       |
+| `LLM_API_KEY`         | _(empty)_                   | API key for `cline` (the provider's key) and for `direct`.                                              |
+| `LLM_BASE_URL`        | `https://api.openai.com/v1` | OpenAI-compatible base URL used by `direct`.                                                            |
+| `LLM_MODEL`           | `gpt-4o-mini`               | Model used by `direct`.                                                                                 |
+| `LLM_TIMEOUT_MS`      | `60000`                     | Give up on a provider request after this long. Sandboxed agent edits use a longer timeout of their own. |
+| `PORT`                | `4000`                      | API port.                                                                                               |
+| `NEXT_PUBLIC_API_URL` | `http://localhost:4000`     | Base URL the web app uses to reach the API.                                                             |
+| `WORKSPACE_DIR`       | `./workspace`               | Where shallow clones and fix-session copies live.                                                       |
+| `DATA_DIR`            | `./data`                    | Where the SQLite database lives.                                                                        |
+| `MAX_REPO_MB`         | `100`                       | Repositories larger than this are rejected after cloning.                                               |
+| `MAX_FILES`           | `4000`                      | Scan cap.                                                                                               |
+| `TEST_TIMEOUT_MS`     | `120000`                    | Timeout for test runs and sandboxed commands.                                                           |
+| `MOCK_SEED`           | `codecompass`               | Seed for deterministic mock output.                                                                     |
 
 ---
 
@@ -305,11 +308,11 @@ interface AgentService {
 }
 ```
 
-| Provider           | Class                   | What it does                                                                                                                                                                                                     | Keys? |
-| ------------------ | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
-| `mock` _(default)_ | `MockAgentService`      | Deterministic, repo-aware output derived from the real file list. Every feature works; the change it applies is deliberately inert (an explanatory comment) so the demo's test run still passes.                 | No    |
-| `cline`            | `ClineAgentService`     | The real **Cline SDK** (`@cline/sdk`). Uses `Agent` for streaming completions and `createTool` to expose sandboxed `read_file` / `write_file` / `run_command` tools, then captures the resulting diffs with git. | Yes   |
-| `direct`           | `DirectLLMAgentService` | A plain OpenAI-compatible chat-completions call with its own SSE parsing and JSON extraction.                                                                                                                    | Yes   |
+| Provider           | Class                   | What it does                                                                                                                                                                                                                                  | Keys? |
+| ------------------ | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
+| `mock` _(default)_ | `MockAgentService`      | Deterministic, repo-aware output derived from the real file list. Every feature works; the change it applies is deliberately inert (an explanatory comment) so the demo's test run still passes.                                              | No    |
+| `cline`            | `ClineAgentService`     | The real **Cline SDK** (`@cline/sdk`). Uses `Agent` for streaming completions and `createTool` to expose sandboxed `read_file` / `write_file` / `run_command` tools, then captures the resulting diffs with git.                              | Yes   |
+| `direct`           | `DirectLLMAgentService` | A plain OpenAI-compatible chat-completions call with its own SSE parsing and JSON extraction. **Applies real edits** by asking the model for full file contents as JSON, validating it against a strict schema, and writing the files itself. | Yes   |
 
 Wiring up the real Cline SDK:
 
@@ -320,8 +323,14 @@ CLINE_MODEL_ID=claude-sonnet-4-6
 LLM_API_KEY=sk-ant-...
 ```
 
-The SDK path is imported lazily, so choosing `mock` never loads it. `direct` can _describe_ edits but
-cannot apply them — a bare chat model has no tools — so use `cline` when you want applied changes.
+The SDK path is imported lazily, so choosing `mock` never loads it.
+
+`direct` applies edits **without** needing tool-calling support: it sends the model the full
+contents of the files the plan wants to touch and asks for a JSON payload of complete file
+contents, which the API then validates and writes. That means any plain chat model works —
+including OpenAI-compatible endpoints such as NVIDIA, and reasoning models that never emit tool
+calls. Writes are guarded: paths must stay inside the repository, existing files are never blanked,
+no-op writes are skipped, and both the file count and total size are capped.
 
 ---
 
@@ -360,6 +369,22 @@ cannot apply them — a bare chat model has no tools — so use `cline` when you
 - **The map is aggregated client-side**, so changing depth is instant and needs no re-analysis.
 - **Parsing is intentionally dependency-free** (language-aware patterns rather than a native
   tree-sitter build), which keeps installs fast and portable.
+
+### Graceful degradation
+
+The agent is treated as an **optional** dependency, because everything expensive (clone, scan,
+parse, graph, diffs, tests) is local:
+
+- If **summarising** fails or times out, the repository still becomes `ready` and a deterministic
+  summary is generated locally from the real file list — so the map, chat, issues and the guided fix
+  all stay usable instead of the whole repo being marked failed.
+- If **issue scoring** fails once, the agent is dropped for the rest of that batch and the heuristic
+  score is used, rather than paying one timeout per issue.
+- The **dashboard renders as soon as the repo is ready**; the graph and the issue list fill in
+  afterwards instead of blocking the first paint.
+- Every provider call carries a timeout (`LLM_TIMEOUT_MS`), and failures are reported with their
+  underlying cause — `LLM request failed: fetch failed (cause: ENOTFOUND)` rather than a bare
+  `fetch failed`.
 
 ### Data model
 
@@ -510,16 +535,20 @@ hard to spot by eye:
 
 ## Troubleshooting
 
-| Symptom                                     | Cause / fix                                                                                                                                       |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Stuck on "Cloning"                          | Large repo on a slow connection. Use the offline demo chip, or a small repo (`sindresorhus/slugify`).                                             |
-| `Repository is NMB which exceeds the limit` | Raise `MAX_REPO_MB` in `.env`.                                                                                                                    |
-| Issues tab is empty                         | No usable open issues, or GitHub rate-limited. Add `GITHUB_TOKEN`, or use the manual input box.                                                   |
-| Verify step fails                           | The repo's own tests failed (often because dependencies are missing). The real output is still shown; the patch and draft PR are still generated. |
-| `AGENT_PROVIDER=cline requires LLM_API_KEY` | Set `LLM_API_KEY` (and usually `CLINE_PROVIDER_ID` / `CLINE_MODEL_ID`) in `.env`.                                                                 |
-| Port already in use                         | `PORT=4001` and `NEXT_PUBLIC_API_URL=http://localhost:4001`.                                                                                      |
-| Map looks dense                             | Lower the depth (`Top level`), enable **Strong links only**, or use search / click a module to isolate its neighbourhood.                         |
-| Want a clean slate                          | `rm -rf apps/api/data apps/api/workspace` and restart.                                                                                            |
+| Symptom                                        | Cause / fix                                                                                                                                                                                                |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Stuck on "Cloning"                             | Large repo on a slow connection. Use the offline demo chip, or a small repo (`sindresorhus/slugify`).                                                                                                      |
+| `Repository is NMB which exceeds the limit`    | Raise `MAX_REPO_MB` in `.env`.                                                                                                                                                                             |
+| Issues tab is empty                            | No usable open issues, or GitHub rate-limited. Add `GITHUB_TOKEN`, or use the manual input box.                                                                                                            |
+| Verify step fails                              | The repo's own tests failed (often because dependencies are missing). The real output is still shown; the patch and draft PR are still generated.                                                          |
+| `AGENT_PROVIDER=cline requires LLM_API_KEY`    | Set `LLM_API_KEY` (and usually `CLINE_PROVIDER_ID` / `CLINE_MODEL_ID`) in `.env`.                                                                                                                          |
+| Analysis ends with `fetch failed`              | The agent's HTTP call never completed. The real reason (e.g. `ENOTFOUND`, `HeadersTimeoutError`) is now appended to the message — usually the model id is wrong, not serving, or not enabled for your key. |
+| Provider returns `404 … Not found for account` | `/v1/models` is a **global catalogue**; your account must have the model provisioned. Pick a model your key actually serves.                                                                               |
+| A provider request hangs with zero bytes       | That model isn't answering on the provider's side — switch model id.                                                                                                                                       |
+| Model returns empty text                       | Reasoning models sometimes leave `message.content` empty; the client falls back to `reasoning_content`. If still empty, raise the token budget or pick a non-reasoning model.                              |
+| Port already in use                            | `PORT=4001` and `NEXT_PUBLIC_API_URL=http://localhost:4001`.                                                                                                                                               |
+| Map looks dense                                | Lower the depth (`Top level`), enable **Strong links only**, or use search / click a module to isolate its neighbourhood.                                                                                  |
+| Want a clean slate                             | `rm -rf apps/api/data apps/api/workspace` and restart.                                                                                                                                                     |
 
 ---
 
@@ -535,8 +564,8 @@ accept/reject with revert, sandboxed test execution, patch and draft-PR generati
 
 **Known limitations**
 
-- The mock provider's edit is an **intentionally inert comment** — a real change needs `cline`.
-- `direct` can describe edits but not apply them (no tools).
+- The mock provider's edit is an **intentionally inert comment** — a real change needs `cline` or `direct`.
+- `direct` rewrites whole files from a JSON payload, so it is bounded by the file-size and file-count caps (5 files, 8 KB each); larger files are skipped with a note rather than risked.
 - Parsing is pattern-based, not a full AST, so exotic import syntax can be missed.
 - `reject all files` still produces a patch from the remaining change set rather than an empty diff.
 - Only `github.com` URLs are accepted.
